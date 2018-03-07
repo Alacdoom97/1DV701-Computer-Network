@@ -13,9 +13,9 @@ import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 
 public class TFTPServer {
-	public static final int TFTPPORT = 4970;
+	public static final int TFTPPORT = 4972;
 	public static final int BUFSIZE = 516;
-	public static final String READDIR = ".\\library\\read\\"; // custom address at your PC
+	public static final String READDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
 	public static final String WRITEDIR = ".\\library\\read\\"; // custom address at your PC
 	// OP codes
 	public static final int OP_RRQ = 1;
@@ -56,9 +56,9 @@ public class TFTPServer {
 			final InetSocketAddress clientAddress = receiveFrom(socket, buf);
 
 			// If clientAddress is null, an error occurred in receiveFrom()
-			if (clientAddress == null)
+			if (clientAddress == null) 
 				continue;
-
+			
 			final StringBuffer requestedFile = new StringBuffer();
 			final int reqtype = ParseRQ(buf, requestedFile);
 			System.out.println("Opcode:" + reqtype);
@@ -71,8 +71,8 @@ public class TFTPServer {
 						// Connect to client
 						sendSocket.connect(clientAddress);
 
-						System.out.printf("%s request for %s from %s using port %d\n",
-								(reqtype == OP_RRQ) ? "Read" : "Write", clientAddress.getHostName(),
+						System.out.printf("%s request for %s from %s using port %d \n",
+								(reqtype == OP_RRQ) ? "Read" : "Write", requestedFile.toString(), clientAddress.getHostName(),
 								clientAddress.getPort());
 
 						// Read request
@@ -176,7 +176,7 @@ public class TFTPServer {
 	 *            (RRQ or WRQ)
 	 */
 	private void HandleRQ(DatagramSocket sendSocket, String requestedFile, int opcode) {
-
+		System.out.println("File: " + requestedFile);
 		File file = new File(requestedFile);
 		byte[] buf = new byte[BUFSIZE - 4]; // -4 since the header is already done
 		ByteBuffer buffer;
@@ -205,6 +205,7 @@ public class TFTPServer {
 					length = 0;
 				}
 				buffer = ByteBuffer.allocate(BUFSIZE);
+				buffer.putShort((short) OP_DAT);
 				buffer.putShort(blockNumber);
 				buffer.put(buf, 0, length);
 				sender = new DatagramPacket(buffer.array(), length + 4);
@@ -215,6 +216,15 @@ public class TFTPServer {
 				} else {
 					System.out.println("Error! Connection has been lost");
 					return;
+				}
+				
+				if (length < 512) {
+					try {
+						read.close();
+					} catch (IOException e) {
+						System.err.println("Trouble closing file.");
+					}
+					break;
 				}
 			}
 			// See "TFTP Formats" in TFTP specification for the DATA and ACK packet contents
@@ -252,7 +262,7 @@ public class TFTPServer {
 
 				ByteBuffer ackBuffer = ByteBuffer.wrap(recieved.getData());
 				short opcode = ackBuffer.getShort();
-
+				System.out.println("Opcode " + opcode);
 				if (opcode == OP_ERR) {
 					System.err.println("Error! Something went wrong! Closing Connection.");
 					ack = -1;
