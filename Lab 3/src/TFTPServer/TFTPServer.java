@@ -231,36 +231,31 @@ public class TFTPServer {
 			// See "TFTP Formats" in TFTP specification for the DATA and ACK packet contents
 
 		} else if (opcode == OP_WRQ) {
-			System.out.println("I am in here!");
 
-			short blockNumber = 1;
+			short blockNumber = 0;
 
 			FileOutputStream output;
 
 			try {
 				output = new FileOutputStream(file);
 			} catch (FileNotFoundException e) {
+				e.printStackTrace();
 				System.out.println("Error! File was not found!");
 				return;
 			}
 
 			while (true) {
-				boolean result = receive_DATA_send_ACK(sendSocket, ack(blockNumber++), blockNumber);
-				System.out.println(result);
-				if (result) {
-					byte[] recieve = new byte[BUFSIZE];
-					DatagramPacket recieved = new DatagramPacket(recieve, recieve.length);
-					byte[] lastRecieved = recieved.getData();
-
+				DatagramPacket dataPack = receive_DATA_send_ACK(sendSocket, ack(blockNumber++), blockNumber);
+				if (dataPack != null) {
+					byte[] data = dataPack.getData();
 					try {
-						output.write(lastRecieved, 4, recieved.getLength() - 4);
-						System.out.println(recieved.getLength());
+						output.write(data, 4, dataPack.getLength() - 4);
 					} catch (IOException e) {
 						System.out.println("IOException error while writing!");
 						System.exit(1);
 					}
 
-					if (recieved.getLength() - 4 < 512) {
+					if (dataPack.getLength() - 4 < 512) {
 						try {
 							sendSocket.send(ack(blockNumber));
 						} catch (IOException e1) {
@@ -329,13 +324,13 @@ public class TFTPServer {
 		}
 	}
 
-	private boolean receive_DATA_send_ACK(DatagramSocket soc, DatagramPacket send, short blockID) {
+	private DatagramPacket receive_DATA_send_ACK(DatagramSocket soc, DatagramPacket send, short blockID) {
 		byte[] recieve = new byte[BUFSIZE];
 		DatagramPacket recieved = new DatagramPacket(recieve, recieve.length);
 		short block;
+
 		while (true) {
 			try {
-				
 				soc.send(send);
 				System.out.println("Packet has been sent!");
 				soc.setSoTimeout(5000); // 5000ms
@@ -346,27 +341,31 @@ public class TFTPServer {
 				System.out.println("Opcode: " + opcode);
 				if (opcode == OP_ERR) {
 					System.err.println("Error! Something went wrong! Closing Connection.");
-					return false;
+					return null;
 				} else {
 					block = ackBuffer.getShort();
 				}
 
 				if (block == blockID) {
-					System.out.println("I'm here");
-					return true;
+					return recieved;
 				} else if (block == -1) {
-					System.out.println("Or am I");
-					return false;
+					return null;
 				} else {
 					throw new SocketTimeoutException();
 				}
 
 			} catch (SocketTimeoutException e1) {
 				System.err.println("Socket timed out!");
-				return false;
-			} catch (IOException e2) {
+
+			} catch (IOException e) {
 				System.err.println("IO Exception!");
-				return false;
+			} finally {
+
+				try {
+					soc.setSoTimeout(0);
+				} catch (SocketException e) {
+					System.err.println("Error on Timeout.");
+				}
 			}
 		}
 	}
