@@ -12,12 +12,14 @@ import java.net.SocketAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.nio.file.FileAlreadyExistsException;
 
 public class TFTPServer {
 	public static final int TFTPPORT = 4970;
-	public static final int BUFSIZE = 600;
+	public static final int BUFSIZE = 516;
 	public static final String READDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
 	public static final String WRITEDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
+
 	// OP codes
 	public static final int OP_RRQ = 1;
 	public static final int OP_WRQ = 2;
@@ -28,9 +30,6 @@ public class TFTPServer {
 	public static final int ERR_FILENOTFOUND = 1;
 	public static final int ERR_ACCESS = 2;
 	public static final int ERR_EXISTS = 6;
-
-	public static final String[] errorMessages = { "Not Defined!", "File not found!", "File already exists!",
-			"Access Violation!" };
 
 	public static void main(String[] args) throws IOException {
 		if (args.length > 0) {
@@ -184,17 +183,20 @@ public class TFTPServer {
 	 */
 	private void HandleRQ(DatagramSocket sendSocket, String requestedFile, int opcode) {
 		System.out.println("File: " + requestedFile);
+
 		File file = new File(requestedFile);
 		byte[] buf = new byte[BUFSIZE - 4]; // -4 since the header is already done
+
 		ByteBuffer buffer;
 		DatagramPacket sender;
 		FileInputStream read = null;
+		boolean repeat = true;
 
-		if (opcode == OP_RRQ) {
+		if (opcode == OP_RRQ) { // Handling the Read Request
 
 			try {
-				read = new FileInputStream(file);
-			} catch (FileNotFoundException err) {
+				read = new FileInputStream(file); // Read file
+			} catch (FileNotFoundException err) { // Throw error code 1 if file not found
 				System.out.println("Error! Remote File was not found!");
 				send_ERR(sendSocket, "File not found!", (short) ERR_FILENOTFOUND);
 				return;
@@ -202,34 +204,41 @@ public class TFTPServer {
 
 			short blockNumber = 1;
 
-			while (true) {
+			while (repeat == true) {
+
 				int length = 0;
+
 				try {
-					length = read.read(buf);
-				} catch (Exception e) {
+					length = read.read(buf); // Creating the input stream
+				} catch (Exception e) { // Throw error if file can't be accessed
 					System.out.println("Error! Could not read file!");
 					send_ERR(sendSocket, "Could not read file!", (short) ERR_ACCESS);
 				}
 
 				if (length == -1) {
-					length = 0;
+					length = 0; // Length back to default
 				}
-				buffer = ByteBuffer.allocate(BUFSIZE);
+
+				buffer = ByteBuffer.allocate(BUFSIZE); // Creating buffer
 				buffer.putShort((short) OP_DAT);
 				buffer.putShort(blockNumber);
 				buffer.put(buf, 0, length);
-				sender = new DatagramPacket(buffer.array(), length + 4);
-				boolean result = send_DATA_receive_ACK(sendSocket, sender, blockNumber++);
+				sender = new DatagramPacket(buffer.array(), length + 4); // Creating datagram packet + 4 because of
+																			// header
 
-				if (result) {
+				boolean result = send_DATA_receive_ACK(sendSocket, sender, blockNumber++); // Go to method Send data and
+																							// receive acknowledgement
+
+				if (result == true) { // if result is true, we are done with # block
 					System.out.println("Successfully sent. Block Number = " + blockNumber + "\n");
-				} else {
+
+				} else { // Else send error
 					System.out.println("Error! Connection has been lost");
 					send_ERR(sendSocket, "Lost Connection!", (short) ERR_NOTDEFINED);
 					System.exit(1);
 				}
 
-				if (length < 512) {
+				if (length < 512) { // If the length was less than 512 bytes we are done otherwise we go again
 					try {
 						read.close();
 					} catch (IOException e) {
@@ -240,41 +249,49 @@ public class TFTPServer {
 			}
 			// See "TFTP Formats" in TFTP specification for the DATA and ACK packet contents
 
-		} else if (opcode == OP_WRQ) {
-			if (file.exists()) {
-				send_ERR(sendSocket, "File already exists!", (short) ERR_EXISTS);
-				return;
+		} else if (opcode == OP_WRQ) { // Handling the Write Request
+
+			if (file.exists()) { // If file exists throw error
+				try {
+					throw new FileAlreadyExistsException("");
+				} catch (FileAlreadyExistsException e) {
+					e.printStackTrace();
+					send_ERR(sendSocket, "File already exists!", (short) ERR_EXISTS);
+					System.out.println("Error! File already exists!");
+					return;
+				}
 			}
 
 			short blockNumber = 0;
 
-			FileOutputStream output;
+			FileOutputStream write;
 
 			try {
-				output = new FileOutputStream(file);
-			} catch (FileNotFoundException e) {
+				write = new FileOutputStream(file); // Creating the output stream
+			} catch (FileNotFoundException e) { // If file not found throw error
 				e.printStackTrace();
-				send_ERR(sendSocket, "Could not create file! Access Denied", (short) ERR_ACCESS);
+				send_ERR(sendSocket, "File not found!", (short) ERR_FILENOTFOUND);
 				System.out.println("Error! File was not found!");
 				return;
 			}
+			DatagramPacket receive = null;
 
-			while (true) {
-				DatagramPacket dataPack = receive_DATA_send_ACK(sendSocket, ack(blockNumber++), blockNumber);
-				if (dataPack == null) {
-					System.err.println("There has been some form of error and connection hs been lost");
-					send_ERR(sendSocket, "Connection has been lost", (short) ERR_ACCESS);
-				} else {
-					byte[] data = dataPack.getData();
+			while (repeat == true) {
+				receive = receive_DATA_send_ACK(sendSocket, ack(blockNumber++), blockNumber); // Go to method receive
+																								// data and
+																								// send acknowledgement
+				if (receive != null) {
+
+					byte[] data = receive.getData();
 					try {
-						output.write(data, 4, dataPack.getLength() - 4);
-					} catch (IOException e) {
+						write.write(data, 4, receive.getLength() - 4);
+					} catch (IOException e2) {
 						System.out.println("IOException error while writing!");
 						send_ERR(sendSocket, "Couldn't write data to file!", (short) ERR_ACCESS);
 						System.exit(1);
 					}
 
-					if (dataPack.getLength() - 4 < 512) {
+					if (receive.getLength() - 4 < 512) { // if less than 512 bytes we send ack
 						try {
 							sendSocket.send(ack(blockNumber));
 						} catch (IOException e1) {
@@ -287,58 +304,55 @@ public class TFTPServer {
 						}
 
 						try {
-							output.close();
-						} catch (IOException e) {
+							write.close();
+						} catch (IOException e3) {
 							System.out.println("Error while closing file!");
 						}
 						break;
 					}
+
+				} else {
+					System.err.println("There has been some form of error and connection hs been lost");
+					send_ERR(sendSocket, "Connection has been lost", (short) ERR_NOTDEFINED);
 				}
-			}		
-					} else {
-						System.err.println("Invalid request. Sending an error packet.");
-						System.exit(1);
-					}
-}
+			}
+		} else {
+			System.err.println("Invalid request. Sending an error packet.");
+			System.exit(1);
+		}
+	}
 
 	/**
 	 * To be implemented
 	 */
 	private boolean send_DATA_receive_ACK(DatagramSocket soc, DatagramPacket send, short blockID) {
 		byte[] recieve = new byte[BUFSIZE];
-		DatagramPacket recieved = new DatagramPacket(recieve, recieve.length);
+		DatagramPacket recieved = new DatagramPacket(recieve, recieve.length);// Create datagram packet
 		short ack;
 
 		while (true) {
 			try {
-				soc.send(send);
+				soc.send(send); // Send socket
 				System.out.println("Packet has been sent!");
-				soc.setSoTimeout(5000); // 5000ms
-				soc.receive(recieved);
+				soc.setSoTimeout(5000); // Timeout at 5000ms
+				soc.receive(recieved); // Receive socket
 
 				ByteBuffer ackBuffer = ByteBuffer.wrap(recieved.getData());
 				short opcode = ackBuffer.getShort();
-				System.out.println("Opcode: " + opcode + "(Should be 4, ACK!)");
-				if (opcode == OP_ERR) {
-					System.err.println("Error! Something went wrong! Closing Connection.");
-					parseError(ackBuffer);
-					ack = -1;
-				} else {
-					ack = ackBuffer.getShort();
-				}
 
-				if (ack == blockID) {
+				System.out.println("Opcode: " + opcode + "(Should be 4, ACK!)");
+				ack = ackBuffer.getShort();
+
+				if (ack == blockID) { // Checking if byte buffer is equal to the block number
 					return true;
-				} else if (ack == -1) {
-					return false;
 				} else {
 					throw new SocketTimeoutException();
 				}
 
-			} catch (SocketTimeoutException e1) {
+			} catch (SocketTimeoutException e1) { // Timeout exception
 				System.err.println("Socket timed out!");
 				break;
-			} catch (IOException e2) {
+			} catch (IOException e2) { // Neccessary for socket
 				System.err.println("IO Exception!");
 				break;
 			}
@@ -353,26 +367,19 @@ public class TFTPServer {
 
 		while (true) {
 			try {
-				soc.send(send);
+				soc.send(send); // Send Socket
 				System.out.println("Packet has been sent!");
-				soc.setSoTimeout(5000); // 5000ms
-				soc.receive(recieved);
+				soc.setSoTimeout(5000); // Timeout at 5000ms
+				soc.receive(recieved);// Receive socket
 
 				ByteBuffer ackBuffer = ByteBuffer.wrap(recieved.getData());
 				short opcode = ackBuffer.getShort();
 				System.out.println("Opcode: " + opcode);
-				if (opcode == OP_ERR) {
-					System.err.println("Error! Something went wrong! Closing Connection.");
-					parseError(ackBuffer);
-					return null;
-				} else {
-					block = ackBuffer.getShort();
-				}
+
+				block = ackBuffer.getShort();
 
 				if (block == blockID) {
 					return recieved;
-				} else if (block == -1) {
-					return null;
 				} else {
 					throw new SocketTimeoutException();
 				}
@@ -382,14 +389,14 @@ public class TFTPServer {
 
 			} catch (IOException e) {
 				System.err.println("IO Exception!");
-			} finally {
-
-				try {
-					soc.setSoTimeout(0);
-				} catch (SocketException e) {
-					System.err.println("Error on Timeout.");
-				}
 			}
+
+			try {
+				soc.setSoTimeout(0);
+			} catch (SocketException e) {
+				System.err.println("Timeout error!");
+			}
+
 		}
 	}
 
@@ -398,22 +405,6 @@ public class TFTPServer {
 		buff.putShort((short) OP_ACK);
 		buff.putShort(blockNum);
 		return new DatagramPacket(buff.array(), 4);
-	}
-
-	private void parseError(ByteBuffer bytes) {
-		short code = bytes.getShort();
-
-		byte[] buffer = bytes.array();
-		for (int i = 4; i < buffer.length; i++) {
-			if (buffer[i] == 0) {
-				String message = new String(buffer, 4, i - 4);
-				if (code > 7) {
-					code = 0;
-				}
-				System.err.println(errorMessages[code] = ": " + message);
-				break;
-			}
-		}
 	}
 
 	private void send_ERR(DatagramSocket sendSocket, String message, short code) {
