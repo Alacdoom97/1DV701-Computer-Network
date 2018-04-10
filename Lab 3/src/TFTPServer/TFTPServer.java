@@ -16,8 +16,8 @@ import java.nio.ByteBuffer;
 public class TFTPServer {
 	public static final int TFTPPORT = 4970;
 	public static final int BUFSIZE = 600;
-	public static final String READDIR = "src\\"; // custom address at your PC
-	public static final String WRITEDIR = "src\\"; // custom address at your PC
+	public static final String READDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
+	public static final String WRITEDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
 	// OP codes
 	public static final int OP_RRQ = 1;
 	public static final int OP_WRQ = 2;
@@ -267,7 +267,7 @@ public class TFTPServer {
 				} else {
 					byte[] data = dataPack.getData();
 					try {
-						output.write(data, 0, dataPack.getLength() - 4);
+						output.write(data, 4, dataPack.getLength() - 4);
 					} catch (IOException e) {
 						System.out.println("IOException error while writing!");
 						send_ERR(sendSocket, "Couldn't write data to file!", (short) ERR_ACCESS);
@@ -285,22 +285,21 @@ public class TFTPServer {
 								System.exit(1);
 							}
 						}
-					}
 
-					try {
-						output.close();
-					} catch (IOException e) {
-						System.out.println("Error while closing file!");
+						try {
+							output.close();
+						} catch (IOException e) {
+							System.out.println("Error while closing file!");
+						}
+						break;
 					}
-					break;
 				}
-			}
-
-		} else {
-			System.err.println("Invalid request. Sending an error packet.");
-			System.exit(1);
-		}
-	}
+			}		
+					} else {
+						System.err.println("Invalid request. Sending an error packet.");
+						System.exit(1);
+					}
+}
 
 	/**
 	 * To be implemented
