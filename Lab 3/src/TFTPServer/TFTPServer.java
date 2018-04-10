@@ -15,15 +15,22 @@ import java.nio.ByteBuffer;
 
 public class TFTPServer {
 	public static final int TFTPPORT = 4970;
-	public static final int BUFSIZE = 516;
-	public static final String READDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
-	public static final String WRITEDIR = "C:\\Users\\Sevajper\\Desktop\\Dir\\"; // custom address at your PC
+	public static final int BUFSIZE = 600;
+	public static final String READDIR = "src\\"; // custom address at your PC
+	public static final String WRITEDIR = "src\\"; // custom address at your PC
 	// OP codes
 	public static final int OP_RRQ = 1;
 	public static final int OP_WRQ = 2;
 	public static final int OP_DAT = 3;
 	public static final int OP_ACK = 4;
 	public static final int OP_ERR = 5;
+	public static final int ERR_NOTDEFINED = 0;
+	public static final int ERR_FILENOTFOUND = 1;
+	public static final int ERR_ACCESS = 2;
+	public static final int ERR_EXISTS = 6;
+
+	public static final String[] errorMessages = { "Not Defined!", "File not found!", "File already exists!",
+			"Access Violation!" };
 
 	public static void main(String[] args) throws IOException {
 		if (args.length > 0) {
@@ -188,7 +195,8 @@ public class TFTPServer {
 			try {
 				read = new FileInputStream(file);
 			} catch (FileNotFoundException err) {
-				System.out.println("Error! File was not found!");
+				System.out.println("Error! Remote File was not found!");
+				send_ERR(sendSocket, "File not found!", (short) ERR_FILENOTFOUND);
 				return;
 			}
 
@@ -200,6 +208,7 @@ public class TFTPServer {
 					length = read.read(buf);
 				} catch (Exception e) {
 					System.out.println("Error! Could not read file!");
+					send_ERR(sendSocket, "Could not read file!", (short) ERR_ACCESS);
 				}
 
 				if (length == -1) {
@@ -216,6 +225,7 @@ public class TFTPServer {
 					System.out.println("Successfully sent. Block Number = " + blockNumber + "\n");
 				} else {
 					System.out.println("Error! Connection has been lost");
+					send_ERR(sendSocket, "Lost Connection!", (short) ERR_NOTDEFINED);
 					System.exit(1);
 				}
 
@@ -231,6 +241,10 @@ public class TFTPServer {
 			// See "TFTP Formats" in TFTP specification for the DATA and ACK packet contents
 
 		} else if (opcode == OP_WRQ) {
+			if (file.exists()) {
+				send_ERR(sendSocket, "File already exists!", (short) ERR_EXISTS);
+				return;
+			}
 
 			short blockNumber = 0;
 
@@ -240,18 +254,23 @@ public class TFTPServer {
 				output = new FileOutputStream(file);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
+				send_ERR(sendSocket, "Could not create file! Access Denied", (short) ERR_ACCESS);
 				System.out.println("Error! File was not found!");
 				return;
 			}
 
 			while (true) {
 				DatagramPacket dataPack = receive_DATA_send_ACK(sendSocket, ack(blockNumber++), blockNumber);
-				if (dataPack != null) {
+				if (dataPack == null) {
+					System.err.println("There has been some form of error and connection hs been lost");
+					send_ERR(sendSocket, "Connection has been lost", (short) ERR_ACCESS);
+				} else {
 					byte[] data = dataPack.getData();
 					try {
-						output.write(data, 4, dataPack.getLength() - 4);
+						output.write(data, 0, dataPack.getLength() - 4);
 					} catch (IOException e) {
 						System.out.println("IOException error while writing!");
+						send_ERR(sendSocket, "Couldn't write data to file!", (short) ERR_ACCESS);
 						System.exit(1);
 					}
 
@@ -303,6 +322,7 @@ public class TFTPServer {
 				System.out.println("Opcode: " + opcode + "(Should be 4, ACK!)");
 				if (opcode == OP_ERR) {
 					System.err.println("Error! Something went wrong! Closing Connection.");
+					parseError(ackBuffer);
 					ack = -1;
 				} else {
 					ack = ackBuffer.getShort();
@@ -318,10 +338,13 @@ public class TFTPServer {
 
 			} catch (SocketTimeoutException e1) {
 				System.err.println("Socket timed out!");
+				break;
 			} catch (IOException e2) {
 				System.err.println("IO Exception!");
+				break;
 			}
 		}
+		return false;
 	}
 
 	private DatagramPacket receive_DATA_send_ACK(DatagramSocket soc, DatagramPacket send, short blockID) {
@@ -341,6 +364,7 @@ public class TFTPServer {
 				System.out.println("Opcode: " + opcode);
 				if (opcode == OP_ERR) {
 					System.err.println("Error! Something went wrong! Closing Connection.");
+					parseError(ackBuffer);
 					return null;
 				} else {
 					block = ackBuffer.getShort();
@@ -377,7 +401,37 @@ public class TFTPServer {
 		return new DatagramPacket(buff.array(), 4);
 	}
 
-	// private void send_ERR(params)
-	// {}
+	private void parseError(ByteBuffer bytes) {
+		short code = bytes.getShort();
 
+		byte[] buffer = bytes.array();
+		for (int i = 4; i < buffer.length; i++) {
+			if (buffer[i] == 0) {
+				String message = new String(buffer, 4, i - 4);
+				if (code > 7) {
+					code = 0;
+				}
+				System.err.println(errorMessages[code] = ": " + message);
+				break;
+			}
+		}
+	}
+
+	private void send_ERR(DatagramSocket sendSocket, String message, short code) {
+
+		ByteBuffer errorCode = ByteBuffer.allocate(BUFSIZE);
+		errorCode.putShort((short) OP_ERR);
+		errorCode.putShort(code);
+		errorCode.put(message.getBytes());
+		errorCode.put((byte) 0);
+
+		DatagramPacket errorPacket = new DatagramPacket(errorCode.array(), errorCode.array().length);
+
+		try {
+			sendSocket.send(errorPacket);
+		} catch (IOException e) {
+			System.err.println("File was not able to be sent!");
+			e.printStackTrace();
+		}
+	}
 }
