@@ -196,7 +196,7 @@ public class TFTPServer {
 				read = new FileInputStream(file);
 			} catch (FileNotFoundException err) {
 				System.out.println("Error! Remote File was not found!");
-				send_ERR(sendSocket, "", (short) ERR_FILENOTFOUND);
+				send_ERR(sendSocket, "File not found!", (short) ERR_FILENOTFOUND);
 				return;
 			}
 
@@ -208,6 +208,7 @@ public class TFTPServer {
 					length = read.read(buf);
 				} catch (Exception e) {
 					System.out.println("Error! Could not read file!");
+					send_ERR(sendSocket, "Could not read file!", (short) ERR_ACCESS);
 				}
 
 				if (length == -1) {
@@ -263,11 +264,10 @@ public class TFTPServer {
 				if (dataPack == null) {
 					System.err.println("There has been some form of error and connection hs been lost");
 					send_ERR(sendSocket, "Connection has been lost", (short) ERR_ACCESS);
-				}
-				else {
+				} else {
 					byte[] data = dataPack.getData();
 					try {
-						output.write(data, 4, dataPack.getLength() - 4);
+						output.write(data, 0, dataPack.getLength() - 4);
 					} catch (IOException e) {
 						System.out.println("IOException error while writing!");
 						send_ERR(sendSocket, "Couldn't write data to file!", (short) ERR_ACCESS);
@@ -338,10 +338,13 @@ public class TFTPServer {
 
 			} catch (SocketTimeoutException e1) {
 				System.err.println("Socket timed out!");
+				break;
 			} catch (IOException e2) {
 				System.err.println("IO Exception!");
+				break;
 			}
 		}
+		return false;
 	}
 
 	private DatagramPacket receive_DATA_send_ACK(DatagramSocket soc, DatagramPacket send, short blockID) {
@@ -402,7 +405,7 @@ public class TFTPServer {
 		short code = bytes.getShort();
 
 		byte[] buffer = bytes.array();
-		for (int i = 0; i < buffer.length; i++) {
+		for (int i = 4; i < buffer.length; i++) {
 			if (buffer[i] == 0) {
 				String message = new String(buffer, 4, i - 4);
 				if (code > 7) {
